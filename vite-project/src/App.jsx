@@ -226,7 +226,7 @@ function App() {
                   <div className="relative w-20 h-20">
                     <svg className="w-20 h-20 transform -rotate-90" viewBox="0 0 80 80">
                       <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="6" />
-                      <circle cx="40" cy="40" r="34" fill="none" stroke="url(#scoreGrad)" strokeWidth="6" strokeLinecap="round" strokeDasharray={`${2 * Math.PI * 34}`} strokeDashoffset={`${2 * Math.PI * 34 * (1 - 87 / 100)}`} />
+                      <circle cx="40" cy="40" r="34" fill="none" stroke={report.safetyScore.color === 'red' ? '#f87171' : report.safetyScore.color === 'orange' ? '#fb923c' : report.safetyScore.color === 'yellow' ? '#fbbf24' : '#c8db88'} strokeWidth="6" strokeLinecap="round" strokeDasharray={`${2 * Math.PI * 34}`} strokeDashoffset={`${2 * Math.PI * 34 * (1 - report.safetyScore.score / 100)}`} />
                       <defs>
                         <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
                           <stop offset="0%" stopColor="#34d399" />
@@ -235,28 +235,77 @@ function App() {
                       </defs>
                     </svg>
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-2xl font-bold text-white">87</span>
+                      <span className="text-2xl font-bold text-white">{report.safetyScore.score}</span>
                     </div>
                   </div>
                   <div>
-                    <p className="text-lg font-bold text-white">Low contract risk</p>
-                    <p className="text-sm text-gray-400">Automated checks found no critical permissions</p>
+                    <p className="text-lg font-bold text-white">{report.safetyScore.label}</p>
+                    <p className="text-sm text-gray-400">{report.safetyScore.overridden ? 'A red-flag override determined this risk level.' : 'Weighted across liquidity, holders, contract, sellability, developer, and market checks.'}</p>
                   </div>
                 </div>
                 <div className="flex gap-3">
                   <div className="text-center px-5 py-2 rounded-xl bg-white/5">
-                    <p className="text-2xl font-bold text-emerald-400">22</p>
+                    <p className="text-2xl font-bold text-emerald-400">{report.safetyScore.components.filter((component) => component.available && component.score >= 60).length}</p>
                     <p className="text-xs text-gray-500">clear</p>
                   </div>
                   <div className="text-center px-5 py-2 rounded-xl bg-white/5">
-                    <p className="text-2xl font-bold text-amber-400">3</p>
-                    <p className="text-xs text-gray-500">review</p>
+                    <p className="text-2xl font-bold text-amber-400">{report.safetyScore.components.filter((component) => !component.available || (component.score >= 40 && component.score < 60)).length}</p>
+                    <p className="text-xs text-gray-500">unavailable / review</p>
                   </div>
                   <div className="text-center px-5 py-2 rounded-xl bg-white/5">
-                    <p className="text-2xl font-bold text-red-400">0</p>
-                    <p className="text-xs text-gray-500">critical</p>
+                    <p className="text-2xl font-bold text-red-400">{report.safetyScore.flags.length}</p>
+                    <p className="text-xs text-gray-500">red flags</p>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-white">Safety score breakdown</h3>
+                    <p className="text-xs text-gray-500">Weights follow the Token Safety Score model</p>
+                  </div>
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div className="space-y-3">
+                  {report.safetyScore.components.map((component) => (
+                    <div key={component.key}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="text-gray-300">{component.label} <span className="text-gray-600">{component.weight}%</span></span>
+                        <span className={component.available ? 'text-gray-300' : 'text-amber-400'}>{component.available ? `${component.score}/100` : 'Unavailable'}</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div className="h-full rounded-full bg-emerald-400" style={{ width: `${component.score}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                    <AlertTriangle className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white">Red-flag overrides</h3>
+                    <p className="text-xs text-gray-500">One critical condition can override the weighted score</p>
+                  </div>
+                </div>
+                {report.safetyScore.flags.length === 0 ? (
+                  <p className="text-sm text-gray-400">No configured override conditions were detected.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {report.safetyScore.flags.map((flag) => (
+                      <div key={flag.label} className="flex items-start gap-2 text-sm">
+                        <AlertTriangle className={`w-4 h-4 mt-0.5 ${flag.severity === 'critical' ? 'text-red-400' : 'text-amber-400'}`} />
+                        <div><p className="text-gray-200">{flag.label}</p><p className="text-xs text-gray-500 mt-0.5">{flag.detail}</p></div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {report.aiSummary && <p className="mt-5 pt-4 border-t border-white/10 text-sm text-gray-400 leading-relaxed"><span className="text-emerald-400 font-semibold">AI read:</span> {report.aiSummary}</p>}
               </div>
             </div>
 

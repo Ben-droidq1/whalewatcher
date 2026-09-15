@@ -1,5 +1,9 @@
 # React + Vite
 
+## Token analysis setup
+
+Copy `.env.example` to `.env`, then set `CHAT_B_AI_API_KEY` if you want AI explanations. Dexscreener supplies the market data without an API key. For the Chat B explanation, also set that provider's OpenAI-compatible `CHAT_B_AI_API_URL`; `CHAT_B_AI_MODEL` is optional. Holder distribution, contract permissions, and honeypot status are unavailable from Dexscreener and are never treated as passed. Never expose the AI key through `VITE_` variables or client-side code.
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:
