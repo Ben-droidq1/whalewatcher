@@ -5,6 +5,7 @@ import { createServer as createViteServer } from 'vite'
 const app = express()
 const port = Number(process.env.PORT || 5173)
 const dexscreenerBaseUrl = 'https://api.dexscreener.com'
+const solscanBaseUrl = 'https://pro-api.solscan.io/v2.0'
 
 function isSolanaAddress(address) {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)
@@ -16,6 +17,46 @@ async function dexscreener(path) {
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(`Dexscreener returned ${response.status}.`)
   return payload
+}
+
+async function solscan(path) {
+  const apiKey = process.env.SOLSCAN_API_KEY || process.env.TOKEN_API_KEY
+  if (!apiKey) return null
+  const url = new URL(`${solscanBaseUrl}${path}`)
+  const response = await fetch(url, {
+    headers: { accept: 'application/json', token: apiKey },
+    signal: AbortSignal.timeout(10000),
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(`Solscan returned ${response.status}.`)
+  return payload
+}
+
+async function getSolscanData(address) {
+  if (!(process.env.SOLSCAN_API_KEY || process.env.TOKEN_API_KEY)) return null
+  const [metaResult] = await Promise.allSettled([
+    solscan(`/token/meta?address=${encodeURIComponent(address)}`),
+  ])
+  const meta = metaResult.status === 'fulfilled' ? metaResult.value?.data || metaResult.value : null
+  return meta ? { meta } : null
+}
+
+function toNumber(value, fallback = 0) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+function getSolscanSupply(meta) {
+  if (!meta?.supply) return null
+  const decimals = toNumber(meta.decimals)
+  const supply = toNumber(meta.supply)
+  return supply / (10 ** decimals)
+}
+
+function normalizeTimestamp(value) {
+  const timestamp = toNumber(value, 0)
+  if (!timestamp) return null
+  return new Date(timestamp < 100000000000 ? timestamp * 1000 : timestamp)
 }
 
 async function getDexscreenerData(address) {
@@ -35,46 +76,77 @@ function clamp(value, min = 0, max = 100) {
 }
 
 function riskForScore(score) {
-  if (score >= 90) return { label: 'Very Safe', color: 'green' }
-  if (score >= 75) return { label: 'Low Risk', color: 'green' }
-  if (score >= 60) return { label: 'Moderate Risk', color: 'yellow' }
-  if (score >= 40) return { label: 'High Risk', color: 'orange' }
-  return { label: 'Critical Risk', color: 'red' }
+  if (score >= 60) return { label: 'High Risk', color: 'red' }
+  if (score >= 30) return { label: 'Medium Risk', color: 'yellow' }
+  return { label: 'Low Risk', color: 'green' }
 }
 
 function calculateSafetyScore(report) {
+  let score = 0
   const flags = []
-  const liquidityRatio = report.marketStats.liquidityToMcapRatio || 0
-  const liquidityScore = clamp((report.liquidity.totalLiquidity > 0 ? 45 : 0) + Math.min(liquidityRatio, 35) + (report.liquidity.poolAgeDays >= 30 ? 20 : report.liquidity.poolAgeDays >= 7 ? 10 : 0))
-  const holderScore = clamp(100 - (report.holders.top10Pct * 1.4) - (report.holders.topHolderPct > 20 ? 20 : 0))
-  const contractScore = report.marketStats.contractVerified === null ? 50 : clamp(100 - (report.authority.mintAuthority ? 45 : 0) - (report.authority.freezeAuthority ? 35 : 0) - (report.marketStats.contractVerified ? 0 : 20))
-  const sellabilityScore = 50
-  const developerScore = report.authority.creator ? 60 : 20
-  const marketScore = clamp((report.liquidity.volume24h > 0 ? 45 : 0) + (report.liquidity.txns24h > 0 ? 25 : 0) + Math.min(report.holders.totalHolders / 100, 30))
 
-  if (report.authority.mintAuthority) flags.push({ severity: 'major', label: 'Developer controls minting', detail: 'The mint authority is still active.' })
-  if (report.holders.top10Pct > 50) flags.push({ severity: 'major', label: 'Top 10 wallets hold more than 50%', detail: `${report.holders.top10Pct.toFixed(2)}% of reported supply is concentrated in the top 10 wallets.` })
-  if (report.liquidity.totalLiquidity <= 0) flags.push({ severity: 'critical', label: 'No liquidity detected', detail: 'No active market liquidity was returned by the data provider.' })
-  if (report.liquidity.liquidityLocked === false) flags.push({ severity: 'major', label: 'Liquidity unlocked', detail: 'The available data indicates that liquidity is not locked.' })
-  if (report.sellability.honeypotDetected) flags.push({ severity: 'critical', label: 'Honeypot detected', detail: 'The token may prevent holders from selling.' })
+  const addFlag = (riskPoints, label, detail) => {
+    score += riskPoints
+    flags.push({
+      severity: riskPoints >= 30 ? 'critical' : riskPoints >= 15 ? 'major' : 'minor',
+      label,
+      detail,
+    })
+  }
 
-  const weightedScore = Math.round(liquidityScore * 0.25 + holderScore * 0.20 + contractScore * 0.20 + sellabilityScore * 0.15 + developerScore * 0.10 + marketScore * 0.10)
-  const hasCriticalOverride = flags.some((flag) => flag.severity === 'critical')
-  const hasMajorOverride = flags.some((flag) => flag.severity === 'major')
-  const score = hasCriticalOverride ? 0 : hasMajorOverride ? Math.min(weightedScore, 39) : weightedScore
+  const totalLiquidity = Number(report.liquidity?.totalLiquidity || 0)
+  const volume24h = Number(report.liquidity?.volume24h || 0)
+  const poolAgeDays = Number(report.liquidity?.poolAgeDays || 0)
+  const holderShare = Number(report.holders?.top10Percent || report.marketStats?.holdersTop10Percent || 0)
+  const hasHoneypot = Boolean(report.sellability?.honeypotDetected)
+
+  if (report.authority?.mintAuthority) {
+    addFlag(60, 'Mint authority not revoked', 'The token issuer can mint additional supply and inflate the market at any time.')
+  }
+  if (report.authority?.freezeAuthority) {
+    addFlag(60, 'Freeze authority not revoked', 'The issuer can freeze holders\' wallets and stop transfers.')
+  }
+  if (hasHoneypot) {
+    addFlag(100, 'Honeypot detected', 'The token cannot be sold after purchase, which is an automatic high-risk condition.')
+  }
+  if (totalLiquidity <= 0) {
+    addFlag(25, 'No liquidity data found', 'No usable liquidity data was found, so this token should be treated as risky or unknown rather than safe.')
+  } else if (totalLiquidity < 5000) {
+    addFlag(30, 'Liquidity under $5k', 'The pool is under $5,000, which is a high-risk trading setup.')
+  } else if (totalLiquidity < 25000) {
+    addFlag(15, 'Liquidity under $25k', 'The token has low liquidity and could be easy to manipulate.')
+  }
+  if (holderShare > 70) {
+    addFlag(35, 'Top 10 holders control more than 70%', 'A small set of wallets controls most of the supply, increasing concentration risk.')
+  } else if (holderShare > 40) {
+    addFlag(15, 'Top 10 holders control more than 40%', 'The distribution is concentrated enough to warrant caution.')
+  }
+  if (poolAgeDays > 0 && poolAgeDays < 1) {
+    addFlag(15, 'Pair younger than 24 hours', 'The pair is too new to trust patterns or depth yet.')
+  }
+  if (totalLiquidity > 0 && volume24h > 0 && volume24h / totalLiquidity > 20) {
+    addFlag(20, '24h volume exceeds liquidity by 20x', 'This pattern can indicate wash trading or artificial activity.')
+  }
+
+  const severeOverride = Boolean(report.authority?.mintAuthority || report.authority?.freezeAuthority || hasHoneypot)
+  if (severeOverride && score < 60) score = 60
+  if (score > 100) score = 100
+
+  const authorityScore = report.authority?.mintAuthority || report.authority?.freezeAuthority ? 0 : 100
+  const liquidityScore = totalLiquidity <= 0 ? 0 : totalLiquidity < 5000 ? 10 : totalLiquidity < 25000 ? 45 : 80
+  const holderScore = holderShare > 70 ? 0 : holderShare > 40 ? 45 : 80
+  const marketScore = totalLiquidity > 0 && volume24h > 0 && volume24h / totalLiquidity > 20 ? 25 : poolAgeDays > 0 && poolAgeDays < 1 ? 55 : 80
 
   return {
     score,
     ...riskForScore(score),
-    overridden: hasCriticalOverride || hasMajorOverride,
+    overridden: severeOverride || flags.length > 0,
     flags,
     components: [
-      { key: 'liquidity', label: 'Liquidity Safety', weight: 25, score: Math.round(liquidityScore), available: report.liquidity.totalLiquidity > 0 },
-      { key: 'holders', label: 'Holder Distribution', weight: 20, score: Math.round(holderScore), available: report.holders.totalHolders > 0 },
-      { key: 'contract', label: 'Contract Safety', weight: 20, score: Math.round(contractScore), available: report.marketStats.contractVerified !== null },
-      { key: 'sellability', label: 'Sellability', weight: 15, score: sellabilityScore, available: false },
-      { key: 'developer', label: 'Developer Reputation', weight: 10, score: developerScore, available: Boolean(report.authority.creator) },
-      { key: 'market', label: 'Market Activity', weight: 10, score: Math.round(marketScore), available: report.liquidity.volume24h > 0 || report.liquidity.txns24h > 0 },
+      { key: 'authority', label: 'Authority Risk', weight: 35, score: authorityScore, available: true },
+      { key: 'liquidity', label: 'Liquidity Risk', weight: 25, score: liquidityScore, available: totalLiquidity > 0 || true },
+      { key: 'holders', label: 'Holder Concentration', weight: 20, score: holderScore, available: holderShare > 0 || true },
+      { key: 'market', label: 'Market Signals', weight: 20, score: marketScore, available: true },
     ],
   }
 }
@@ -87,8 +159,8 @@ async function generateAiSummary(report, safetyScore) {
   const requestBody = {
     temperature: 0.2,
     messages: [
-      { role: 'system', content: 'You explain token safety reports. Never invent facts, never give financial advice, and defer to critical or major red flags. Reply in two concise sentences.' },
-      { role: 'user', content: JSON.stringify({ token: report.tokenSymbol, safetyScore, authority: report.authority, holders: report.holders, liquidity: report.liquidity }) },
+      { role: 'system', content: 'You explain deterministic crypto scam-risk checks. Use only the supplied facts and flags; never invent holder data, honeypot results, or missing metrics. Explain active mint/freeze authority, low liquidity, new pairs, and suspicious volume/liquidity ratios plainly. Never give financial advice. Reply in two concise sentences.' },
+      { role: 'user', content: JSON.stringify({ token: report.tokenSymbol, safetyScore, authority: report.authority, liquidity: report.liquidity, marketStats: report.marketStats }) },
     ],
   }
   if (process.env.CHAT_B_AI_MODEL || process.env.OPENAI_MODEL) requestBody.model = process.env.CHAT_B_AI_MODEL || process.env.OPENAI_MODEL
@@ -111,54 +183,58 @@ app.get('/api/analyze', async (req, res) => {
   }
 
   try {
-    const { profile, market } = await getDexscreenerData(address)
+    const [{ profile, market }, solscanData] = await Promise.all([
+      getDexscreenerData(address),
+      getSolscanData(address),
+    ])
+    const solscanMeta = solscanData?.meta || {}
     const now = Date.now()
-    const poolAgeDays = market.pairCreatedAt ? Math.max(0, Math.floor((now - market.pairCreatedAt) / 86400000)) : null
+    const pairCreatedAt = normalizeTimestamp(market.pairCreatedAt)
+    const poolAgeDays = pairCreatedAt ? Math.max(0, Math.floor((now - pairCreatedAt.getTime()) / 86400000)) : null
     const token = market.baseToken?.address?.toLowerCase() === address.toLowerCase() ? market.baseToken : market.quoteToken
     const priceChange24h = Number(market.priceChange?.h24 || 0)
     const totalLiquidity = Number(market.liquidity?.usd || 0)
     const marketCap = Number(market.marketCap || market.fdv || 0)
     const volume24h = Number(market.volume?.h24 || 0)
     const txns24h = Number((market.txns?.h24?.buys || 0) + (market.txns?.h24?.sells || 0))
+    const solscanVerified = typeof solscanMeta.verified === 'boolean' ? solscanMeta.verified : null
+    const holderShare = Number(solscanMeta.top10_holder_share ?? solscanMeta.top_10_holder_share ?? solscanMeta.holders_top10_share ?? solscanMeta.holder_top_10_share ?? 0)
+    const honeypotDetected = Boolean(solscanMeta.honeypot || solscanMeta.is_honeypot || solscanMeta.honeypot_detected)
 
     const report = {
-      tokenName: token?.name || profile?.description?.split(' / ')[0] || 'Unknown token',
-      tokenSymbol: token?.symbol || '—',
+      tokenName: token?.name || solscanMeta.name || profile?.description?.split(' / ')[0] || 'Unknown token',
+      tokenSymbol: token?.symbol || solscanMeta.symbol || '—',
       authority: {
-        mintAuthority: null,
-        freezeAuthority: null,
-        creator: null,
-        verified: null,
-      },
-      holders: {
-        totalHolders: 0,
-        topHolderPct: 0,
-        topHolderAddress: 'Unavailable from Dexscreener',
-        top5Pct: 0,
-        top10Pct: 0,
-        items: [],
+        mintAuthority: solscanMeta.mint_authority || null,
+        freezeAuthority: solscanMeta.freeze_authority || null,
+        creator: solscanMeta.creator || null,
+        verified: solscanVerified,
       },
       liquidity: {
         totalLiquidity,
         volume24h,
         txns24h,
+        dexscreenerUrl: market.url,
         poolAgeDays,
-        poolCreatedAt: market.pairCreatedAt ? new Date(market.pairCreatedAt).toISOString().slice(0, 10) : 'Unavailable',
+        poolCreatedAt: pairCreatedAt ? pairCreatedAt.toISOString() : null,
         mcap: marketCap,
         price: Number(market.priceUsd || 0),
         priceChange24h,
         liquidityLocked: null,
       },
-      marketStats: {
-        circulatingSupply: 'Unavailable from Dexscreener',
-        totalSupply: 'Unavailable from Dexscreener',
-        holdersChange24h: null,
-        liquidityToMcapRatio: marketCap ? Number(((totalLiquidity / marketCap) * 100).toFixed(1)) : null,
-        contractVerified: null,
-        deployerAddress: 'Unavailable from Dexscreener',
-        deployerCreatedAt: 'Unavailable',
+      holders: {
+        top10Percent: Number.isFinite(holderShare) && holderShare > 0 ? holderShare : null,
       },
-      sellability: { honeypotDetected: false, available: false },
+      marketStats: {
+        holdersChange24h: null,
+        holdersTop10Percent: Number.isFinite(holderShare) && holderShare > 0 ? holderShare : null,
+        liquidityToMcapRatio: marketCap ? Number(((totalLiquidity / marketCap) * 100).toFixed(1)) : null,
+      },
+      sellability: { honeypotDetected, available: honeypotDetected },
+      dataSources: {
+        dexscreener: true,
+        solscan: Boolean(solscanData),
+      },
     }
     const safetyScore = calculateSafetyScore(report)
     let aiSummary = null
