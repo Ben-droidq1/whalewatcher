@@ -60,14 +60,15 @@ function normalizeTimestamp(value) {
 }
 
 async function getDexscreenerData(address) {
-  const [profiles, pairs] = await Promise.all([
+  const [profilesResult, pairsResult] = await Promise.allSettled([
     dexscreener('/token-profiles/latest/v1'),
     dexscreener(`/token-pairs/v1/solana/${address}`),
   ])
+  const profiles = profilesResult.status === 'fulfilled' ? profilesResult.value : []
+  const pairs = pairsResult.status === 'fulfilled' ? pairsResult.value : []
   const matchingProfile = (Array.isArray(profiles) ? profiles : []).find((profile) => profile.tokenAddress?.toLowerCase() === address.toLowerCase()) || null
   const matchingPairs = Array.isArray(pairs) ? pairs.filter((pair) => pair.chainId === 'solana') : []
   const market = matchingPairs.sort((left, right) => Number(right.liquidity?.usd || 0) - Number(left.liquidity?.usd || 0))[0] || null
-  if (!market) throw new Error('Dexscreener has no market data for this Solana token.')
   return { profile: matchingProfile, market }
 }
 
@@ -188,15 +189,16 @@ app.get('/api/analyze', async (req, res) => {
       getSolscanData(address),
     ])
     const solscanMeta = solscanData?.meta || {}
+    const marketData = market || {}
     const now = Date.now()
-    const pairCreatedAt = normalizeTimestamp(market.pairCreatedAt)
+    const pairCreatedAt = normalizeTimestamp(marketData.pairCreatedAt)
     const poolAgeDays = pairCreatedAt ? Math.max(0, Math.floor((now - pairCreatedAt.getTime()) / 86400000)) : null
-    const token = market.baseToken?.address?.toLowerCase() === address.toLowerCase() ? market.baseToken : market.quoteToken
-    const priceChange24h = Number(market.priceChange?.h24 || 0)
-    const totalLiquidity = Number(market.liquidity?.usd || 0)
-    const marketCap = Number(market.marketCap || market.fdv || 0)
-    const volume24h = Number(market.volume?.h24 || 0)
-    const txns24h = Number((market.txns?.h24?.buys || 0) + (market.txns?.h24?.sells || 0))
+    const token = marketData.baseToken?.address?.toLowerCase() === address.toLowerCase() ? marketData.baseToken : marketData.quoteToken
+    const priceChange24h = Number(marketData.priceChange?.h24 || 0)
+    const totalLiquidity = Number(marketData.liquidity?.usd || 0)
+    const marketCap = Number(marketData.marketCap || marketData.fdv || 0)
+    const volume24h = Number(marketData.volume?.h24 || 0)
+    const txns24h = Number((marketData.txns?.h24?.buys || 0) + (marketData.txns?.h24?.sells || 0))
     const solscanVerified = typeof solscanMeta.verified === 'boolean' ? solscanMeta.verified : null
     const holderShare = Number(solscanMeta.top10_holder_share ?? solscanMeta.top_10_holder_share ?? solscanMeta.holders_top10_share ?? solscanMeta.holder_top_10_share ?? 0)
     const honeypotDetected = Boolean(solscanMeta.honeypot || solscanMeta.is_honeypot || solscanMeta.honeypot_detected)
@@ -214,7 +216,7 @@ app.get('/api/analyze', async (req, res) => {
         totalLiquidity,
         volume24h,
         txns24h,
-        dexscreenerUrl: market.url,
+        dexscreenerUrl: marketData.url || null,
         poolAgeDays,
         poolCreatedAt: pairCreatedAt ? pairCreatedAt.toISOString() : null,
         mcap: marketCap,
@@ -232,7 +234,7 @@ app.get('/api/analyze', async (req, res) => {
       },
       sellability: { honeypotDetected, available: honeypotDetected },
       dataSources: {
-        dexscreener: true,
+        dexscreener: Boolean(profile || market),
         solscan: Boolean(solscanData),
       },
     }
