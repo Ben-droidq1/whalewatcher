@@ -387,6 +387,14 @@ function App() {
                     )}
                   </div>
                   <p className="text-sm text-gray-500">${report.tokenSymbol} · {tokenAddress.slice(0, 8)}...{tokenAddress.slice(-4)}</p>
+                  <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
+                    <span className={`px-2 py-1 rounded-md border ${report.dataSources?.dexscreener ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' : 'border-gray-600/30 bg-white/5 text-gray-500'}`}>
+                      Dexscreener {report.dataSources?.dexscreener ? 'data available' : 'unavailable'}
+                    </span>
+                    <span className={`px-2 py-1 rounded-md border ${report.dataSources?.solscan ? 'border-cyan-400/20 bg-cyan-400/10 text-cyan-300' : 'border-gray-600/30 bg-white/5 text-gray-500'}`}>
+                      Solscan {report.dataSources?.solscan ? 'data available' : 'unavailable'}
+                    </span>
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
