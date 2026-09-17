@@ -267,7 +267,7 @@ export default function TokenFacts() {
     if (!isValidSolanaAddress(trimmed)) {
       setStatus("error");
       setResult(null);
-      setErrorMsg("That doesn't look like a valid Solana address (base58, 32–44 characters).");
+      setErrorMsg("Temporary unavailable.");
       return;
     }
 
@@ -280,7 +280,7 @@ export default function TokenFacts() {
     } catch (err) {
       setStatus("error");
       setResult(null);
-      setErrorMsg(err.code === "NOT_FOUND" ? err.message : "Something went wrong checking this token. Try again.");
+      setErrorMsg("Temporary unavailable.");
     }
   }
 
@@ -290,7 +290,7 @@ export default function TokenFacts() {
     setErrorMsg("");
     fetchTokenSafety(ex)
       .then((data) => { setResult(data); setStatus("success"); })
-      .catch((err) => { setStatus("error"); setResult(null); setErrorMsg(err.message); });
+      .catch((err) => { setStatus("error"); setResult(null); setErrorMsg("Temporary unavailable."); });
   }
 
   return (

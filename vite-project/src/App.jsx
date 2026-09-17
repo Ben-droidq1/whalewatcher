@@ -64,11 +64,11 @@ function App() {
     e.preventDefault();
     setShowHistory(false);
     if (!tokenAddress.trim()) {
-      setError('Please paste a token address to analyze.');
+      setError('Temporary unavailable.');
       return;
     }
     if (tokenAddress.trim().length < 20) {
-      setError('That doesn\'t look like a valid token address.');
+      setError('Temporary unavailable.');
       return;
     }
     setError('');
@@ -79,17 +79,17 @@ function App() {
       const response = await fetch(`/api/analyze?address=${encodeURIComponent(tokenAddress.trim())}`);
       const isJson = response.headers.get('content-type')?.includes('application/json');
       if (!isJson) {
-        throw new Error('The analysis service is not running. Restart the app with npm run dev.');
+        throw new Error('Temporary unavailable.');
       }
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Analysis failed.');
+      if (!response.ok) throw new Error(payload.error || 'Temporary unavailable.');
 
       const cleaned = tokenAddress.trim();
       setHistory((previous) => [cleaned, ...previous.filter((item) => item !== cleaned)].slice(0, 3));
       setReport(payload);
       setState('results');
     } catch (requestError) {
-      setError(requestError.message || 'Could not analyze that token.');
+      setError(requestError.message || 'Temporary unavailable.');
       setState('idle');
     }
   };
