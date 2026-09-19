@@ -259,4 +259,4 @@ if (process.env.NODE_ENV === 'production') {
   app.use(vite.middlewares)
 }
 
-app.listen(port, () => console.log(`TokenGuard running at http://localhost:${port}`))
+app.listen(port, () => console.log(`TokenGuard running at https://ghostcheck-wheat.vercel.app/`))
