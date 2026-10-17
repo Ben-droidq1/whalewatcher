@@ -75,7 +75,8 @@ function App() {
     setReport(null);
 
     try {
-      const response = await fetch(`/api/analyze?address=${encodeURIComponent(tokenAddress.trim())}`);
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${apiBase}/api/analyze?address=${encodeURIComponent(tokenAddress.trim())}`);
       const isJson = response.headers.get('content-type')?.includes('application/json');
       if (!isJson) {
         throw new Error('The server sent an unexpected response. Please try again.');

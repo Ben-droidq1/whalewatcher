@@ -1,12 +1,22 @@
 import 'dotenv/config'
 import express from 'express'
-import { fileURLToPath } from 'node:url'
-import { createServer as createViteServer } from 'vite'
 
 const app = express()
-const port = Number(process.env.PORT || 5173)
+const port = Number(process.env.PORT || 5174)
 const dexscreenerBaseUrl = 'https://api.dexscreener.com'
 const solscanBaseUrl = 'https://pro-api.solscan.io/v2.0'
+
+// CORS: the API is meant to be called from a separately hosted frontend.
+// Set CORS_ORIGIN on Render to restrict access, e.g. "https://your-site.onrender.com".
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN || '*')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  if (req.method === 'OPTIONS') return res.sendStatus(204)
+  next()
+})
+
+app.get('/', (_req, res) => res.json({ ok: true, service: 'ghostcheck-api' }))
 
 function isSolanaAddress(address) {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)
@@ -95,7 +105,7 @@ function calculateSafetyScore(report) {
     addFlag(60, 'Mint authority not revoked', 'The token issuer can mint additional supply and inflate the market at any time.')
   }
   if (report.authority?.freezeAuthority) {
-    addFlag(60, 'Freeze authority not revoked', 'The issuer can freeze holders\' wallets and stop transfers.')
+    addFlag(60, "Freeze authority not revoked", "The issuer can freeze holders' wallets and stop transfers.")
   }
   if (hasHoneypot) {
     addFlag(100, 'Honeypot detected', 'The token cannot be sold after purchase, which is an automatic high-risk condition.')
@@ -241,12 +251,4 @@ app.get('/api/analyze', async (req, res) => {
   }
 })
 
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static('dist'))
-  app.get('{*splat}', (_req, res) => res.sendFile(fileURLToPath(new URL('./dist/index.html', import.meta.url))))
-} else {
-  const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' })
-  app.use(vite.middlewares)
-}
-
-app.listen(port, () => console.log(`GhostCheck running at http://localhost:${port}/`))
+app.listen(port, () => console.log(`GhostCheck API running at http://localhost:${port}/`))
