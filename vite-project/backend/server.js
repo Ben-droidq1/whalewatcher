@@ -220,7 +220,7 @@ app.get('/api/analyze', async (req, res) => {
         poolAgeDays,
         poolCreatedAt: pairCreatedAt ? pairCreatedAt.toISOString() : null,
         mcap: marketCap,
-        price: Number(market.priceUsd || 0),
+        price: Number(market?.priceUsd || 0),
         priceChange24h,
         liquidityLocked: null,
       },
