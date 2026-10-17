@@ -1,0 +1,14 @@
+# Render blueprint: creates the backend web service with the correct root directory.
+# Deploy via "New +" -> "Blueprint" on Render, or keep an existing service and set
+# its Root Directory to "vite-project/backend" in Settings -> Build & Deploy.
+services:
+  - type: web
+    name: ghostcheck-api
+    runtime: node
+    rootDir: vite-project/backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    # Optional env vars (set values in the Render dashboard):
+    # SOLSCAN_API_KEY, CHAT_B_AI_API_KEY, CHAT_B_AI_API_URL, CHAT_B_AI_MODEL,
+    # CORS_ORIGIN (your frontend URL, e.g. https://your-frontend.onrender.com)
