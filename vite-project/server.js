@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import express from 'express'
+import { fileURLToPath } from 'node:url'
 import { createServer as createViteServer } from 'vite'
 
 const app = express()
@@ -46,13 +47,6 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback
 }
 
-function getSolscanSupply(meta) {
-  if (!meta?.supply) return null
-  const decimals = toNumber(meta.decimals)
-  const supply = toNumber(meta.supply)
-  return supply / (10 ** decimals)
-}
-
 function normalizeTimestamp(value) {
   const timestamp = toNumber(value, 0)
   if (!timestamp) return null
@@ -70,10 +64,6 @@ async function getDexscreenerData(address) {
   const matchingPairs = Array.isArray(pairs) ? pairs.filter((pair) => pair.chainId === 'solana') : []
   const market = matchingPairs.sort((left, right) => Number(right.liquidity?.usd || 0) - Number(left.liquidity?.usd || 0))[0] || null
   return { profile: matchingProfile, market }
-}
-
-function clamp(value, min = 0, max = 100) {
-  return Math.min(max, Math.max(min, value))
 }
 
 function riskForScore(score) {
@@ -253,10 +243,10 @@ app.get('/api/analyze', async (req, res) => {
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static('dist'))
-  app.get('{*splat}', (_req, res) => res.sendFile(new URL('./dist/index.html', import.meta.url).pathname))
+  app.get('{*splat}', (_req, res) => res.sendFile(fileURLToPath(new URL('./dist/index.html', import.meta.url))))
 } else {
   const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' })
   app.use(vite.middlewares)
 }
 
-app.listen(port, () => console.log(`TokenGuard running at https://ghostcheck-wheat.vercel.app/`))
+app.listen(port, () => console.log(`GhostCheck running at http://localhost:${port}/`))

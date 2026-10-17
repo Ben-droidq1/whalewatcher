@@ -12,7 +12,6 @@ import {
   CheckCircle2,
   XCircle,
   TrendingUp,
-  Wallet,
   Clock,
   Activity,
   ExternalLink,
@@ -64,11 +63,11 @@ function App() {
     e.preventDefault();
     setShowHistory(false);
     if (!tokenAddress.trim()) {
-      setError('Temporary unavailable.');
+      setError('Paste a Solana token mint address to analyze.');
       return;
     }
-    if (tokenAddress.trim().length < 20) {
-      setError('Temporary unavailable.');
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(tokenAddress.trim())) {
+      setError('Enter a valid Solana token mint address.');
       return;
     }
     setError('');
@@ -79,10 +78,10 @@ function App() {
       const response = await fetch(`/api/analyze?address=${encodeURIComponent(tokenAddress.trim())}`);
       const isJson = response.headers.get('content-type')?.includes('application/json');
       if (!isJson) {
-        throw new Error('Temporary unavailable.');
+        throw new Error('The server sent an unexpected response. Please try again.');
       }
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Temporary unavailable.');
+      if (!response.ok) throw new Error(payload.error || 'Something went wrong while analyzing this token.');
 
       const cleaned = tokenAddress.trim();
       setHistory((previous) => [cleaned, ...previous.filter((item) => item !== cleaned)].slice(0, 3));
@@ -281,7 +280,7 @@ function App() {
                     setTokenAddress(e.target.value);
                     if (error) setError('');
                   }}
-                  placeholder="0x... or paste token contract address"
+                  placeholder="Paste a Solana token mint address"
                   className="flex-1 bg-transparent text-sm sm:text-base text-white placeholder-gray-500 outline-none py-3 px-1 min-w-0"
                 />
                 <button
@@ -337,7 +336,7 @@ function App() {
           <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-8 text-xs text-gray-500 animate-fade-in" style={{ animationDelay: '0.4s' }}>
             <span className="flex items-center gap-1.5"><Lock className="w-3.5 h-3.5" /> Read-only analysis</span>
             <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5" /> Results in seconds</span>
-            <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" /> 25 checks, one report</span>
+            <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" /> 10 risk rules, one report</span>
           </div>
         </div>
       </section>
@@ -354,7 +353,7 @@ function App() {
               </div>
               <div className="text-center">
                 <p className="text-lg font-semibold text-white">Analyzing token...</p>
-                <p className="text-sm text-gray-500 mt-1">Running 25+ security checks</p>
+                <p className="text-sm text-gray-500 mt-1">Running the risk checks</p>
               </div>
               <div className="w-full max-w-md space-y-2 mt-4">
                 {['Checking contract authorities', 'Checking liquidity depth', 'Reviewing pair age', 'Analyzing market data'].map((step, i) => (
@@ -543,7 +542,7 @@ function App() {
                 <CheckRow label="Mint authority disabled" passed={!report.authority.mintAuthority} />
                 <CheckRow label="Freeze authority disabled" passed={!report.authority.freezeAuthority} />
                 <CheckRow label="Creator indexed" passed={Boolean(report.authority.creator)} />
-                <CheckRow label="Token metadata available" passed />
+                <CheckRow label="Token metadata available" passed={report.dataSources?.solscan || report.tokenName !== 'Unknown token'} />
                 <CheckRow label="DEX market available" passed={report.liquidity.totalLiquidity > 0} />
               </div>
             </div>
@@ -611,7 +610,7 @@ function App() {
               <FeatureCard
                 icon={<ShieldCheck className="w-6 h-6" />}
                 title="Authority Checks"
-                description="Verify mint authority, freeze authority, ownership renunciation, honeypot status, and 20+ contract security flags."
+                description="Verify mint authority, freeze authority, ownership renunciation, and contract security flags."
                 color="emerald"
               />
               <FeatureCard
@@ -658,7 +657,7 @@ function App() {
               <p className="text-gray-400 max-w-2xl mx-auto">Three simple steps from address to full safety report.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <StepCard step="01" icon={<Search className="w-6 h-6" />} title="Paste Token Address" description="Copy any token contract address and paste it into the search bar above." />
+              <StepCard step="01" icon={<Search className="w-6 h-6" />} title="Paste Token Address" description="Copy a Solana token mint address and paste it into the search bar above." />
               <StepCard step="02" icon={<ShieldCheck className="w-6 h-6" />} title="Automated Analysis" description="We evaluate contract permissions, liquidity, pair age, and market activity." />
               <StepCard step="03" icon={<CheckCircle2 className="w-6 h-6" />} title="Review Report" description="Get a clear safety score with detailed breakdowns of every check we performed." />
             </div>
@@ -680,11 +679,11 @@ function App() {
               />
               <FaqItem
                 question="What chains are supported?"
-                answer="We currently support Ethereum, BNB Chain, Solana, Polygon, Arbitrum, and Base. More chains are being added regularly."
+                answer="GhostCheck currently focuses on Solana token mint addresses. More chains are being considered for the future."
               />
               <FaqItem
                 question="What does the safety score mean?"
-                answer="The safety score (0–100) is calculated from 25+ automated checks. A higher score means the token passed more security checks, but it is not a guarantee of safety — always do your own research."
+                answer="The risk score (0–100) is calculated from a set of automated checks covering contract authorities, liquidity, holder concentration, and market signals. A higher score means more risk, not more safety — always do your own research."
               />
               <FaqItem
                 question="Is this financial advice?"

@@ -277,7 +277,7 @@ export default function TokenFacts() {
       const data = await fetchTokenSafety(trimmed);
       setResult(data);
       setStatus("success");
-    } catch (err) {
+    } catch {
       setStatus("error");
       setResult(null);
       setErrorMsg("Temporary unavailable.");
@@ -290,7 +290,7 @@ export default function TokenFacts() {
     setErrorMsg("");
     fetchTokenSafety(ex)
       .then((data) => { setResult(data); setStatus("success"); })
-      .catch((err) => { setStatus("error"); setResult(null); setErrorMsg("Temporary unavailable."); });
+      .catch(() => { setStatus("error"); setResult(null); setErrorMsg("Temporary unavailable."); });
   }
 
   return (
