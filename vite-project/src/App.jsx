@@ -63,11 +63,11 @@ function App() {
     e.preventDefault();
     setShowHistory(false);
     if (!tokenAddress.trim()) {
-      setError('Paste a Solana token mint address to analyze.');
+      setError('Invalid CA, please check if the CA is correct.');
       return;
     }
     if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(tokenAddress.trim())) {
-      setError('Enter a valid Solana token mint address.');
+      setError('Invalid CA, please check if the CA is correct.');
       return;
     }
     setError('');
@@ -83,6 +83,9 @@ function App() {
       }
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Something went wrong while analyzing this token.');
+      if (!payload.tokenName || payload.tokenName === 'Unknown token') {
+        throw new Error('Invalid CA, please check if the CA is correct.');
+      }
 
       const cleaned = tokenAddress.trim();
       setHistory((previous) => [cleaned, ...previous.filter((item) => item !== cleaned)].slice(0, 3));
@@ -392,7 +395,7 @@ function App() {
                       Dexscreener {report.dataSources?.dexscreener ? 'data available' : 'unavailable'}
                     </span>
                     <span className={`px-2 py-1 rounded-md border ${report.dataSources?.solscan ? 'border-cyan-400/20 bg-cyan-400/10 text-cyan-300' : 'border-gray-600/30 bg-white/5 text-gray-500'}`}>
-                      Solscan {report.dataSources?.solscan ? 'data available' : 'unavailable'}
+                      Solscan {report.dataSources?.solscan ? 'data available' : report.dataSources?.solscanConfigured === false ? 'API key not set' : 'unavailable'}
                     </span>
                   </div>
                 </div>

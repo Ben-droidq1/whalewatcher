@@ -64,16 +64,24 @@ function normalizeTimestamp(value) {
 }
 
 async function getDexscreenerData(address) {
-  const [profilesResult, pairsResult] = await Promise.allSettled([
+  const [profilesResult, pairsResult, tokensResult] = await Promise.allSettled([
     dexscreener('/token-profiles/latest/v1'),
     dexscreener(`/token-pairs/v1/solana/${address}`),
+    dexscreener(`/latest/dex/tokens/${address}`),
   ])
   const profiles = profilesResult.status === 'fulfilled' ? profilesResult.value : []
-  const pairs = pairsResult.status === 'fulfilled' ? pairsResult.value : []
+  const tokensPayload = tokensResult.status === 'fulfilled' ? tokensResult.value || {} : {}
+  let pairs = pairsResult.status === 'fulfilled' ? pairsResult.value : []
+  if (!Array.isArray(pairs)) pairs = []
+  // Fallback: the batch token endpoint returns all pairs for a token address,
+  // so we still capture Dexscreener data when the pairs endpoint comes back empty.
+  if (pairs.length === 0 && Array.isArray(tokensPayload.pairs)) {
+    pairs = tokensPayload.pairs
+  }
   const matchingProfile = (Array.isArray(profiles) ? profiles : []).find((profile) => profile.tokenAddress?.toLowerCase() === address.toLowerCase()) || null
-  const matchingPairs = Array.isArray(pairs) ? pairs.filter((pair) => pair.chainId === 'solana') : []
+  const matchingPairs = pairs.filter((pair) => pair.chainId === 'solana')
   const market = matchingPairs.sort((left, right) => Number(right.liquidity?.usd || 0) - Number(left.liquidity?.usd || 0))[0] || null
-  return { profile: matchingProfile, market }
+  return { profile: matchingProfile, market, pairCount: matchingPairs.length }
 }
 
 function riskForScore(score) {
@@ -180,11 +188,11 @@ async function generateAiSummary(report, safetyScore) {
 app.get('/api/analyze', async (req, res) => {
   const address = String(req.query.address || '').trim()
   if (!isSolanaAddress(address)) {
-    return res.status(400).json({ error: 'Enter a valid Solana token mint address.' })
+    return res.status(400).json({ error: 'Invalid CA, please check if the CA is correct.' })
   }
 
   try {
-    const [{ profile, market }, solscanData] = await Promise.all([
+    const [{ profile, market, pairCount }, solscanData] = await Promise.all([
       getDexscreenerData(address),
       getSolscanData(address),
     ])
@@ -202,9 +210,13 @@ app.get('/api/analyze', async (req, res) => {
     const solscanVerified = typeof solscanMeta.verified === 'boolean' ? solscanMeta.verified : null
     const holderShare = Number(solscanMeta.top10_holder_share ?? solscanMeta.top_10_holder_share ?? solscanMeta.holders_top10_share ?? solscanMeta.holder_top_10_share ?? 0)
     const honeypotDetected = Boolean(solscanMeta.honeypot || solscanMeta.is_honeypot || solscanMeta.honeypot_detected)
+    const tokenName = token?.name || solscanMeta.name || profile?.description?.split(' / ')[0] || null
+    if (!tokenName) {
+      return res.status(404).json({ error: 'Invalid CA, please check if the CA is correct.' })
+    }
 
     const report = {
-      tokenName: token?.name || solscanMeta.name || profile?.description?.split(' / ')[0] || 'Unknown token',
+      tokenName,
       tokenSymbol: token?.symbol || solscanMeta.symbol || '—',
       authority: {
         mintAuthority: solscanMeta.mint_authority || null,
@@ -236,9 +248,11 @@ app.get('/api/analyze', async (req, res) => {
       dataSources: {
         dexscreener: Boolean(profile || market),
         solscan: Boolean(solscanData),
+        solscanConfigured: Boolean(process.env.SOLSCAN_API_KEY || process.env.TOKEN_API_KEY),
       },
     }
     const safetyScore = calculateSafetyScore(report)
+    console.log(`analyze ${address}: dexscreener pairs=${pairCount}, profile=${Boolean(profile)}, solscan=${Boolean(solscanData)}`)
     let aiSummary = null
     try {
       aiSummary = await generateAiSummary(report, safetyScore)
